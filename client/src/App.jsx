@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { createRoom, joinRoom, MIN_PLAYERS } from "./net.js";
+import { createRoom, joinRoom, MIN_PLAYERS, LEVELS } from "./net.js";
 
 const NAME_KEY = "misterio:nombre";
 const PHOTO_KEY = "misterio:foto";
@@ -76,6 +76,7 @@ export default function App() {
     saveName(value);
   };
   const [photo, setPhoto] = useState(loadPhoto);
+  const [prefs, setPrefsState] = useState({ villain: null, level: null });
   const [code, setCode] = useState("");
   const [session, setSession] = useState(null); // { code, myId, isHost, sendChat, close }
   const [room, setRoom] = useState(null);
@@ -112,12 +113,19 @@ export default function App() {
     }
   };
 
+  const changePrefs = (patch) => {
+    const next = { ...prefs, ...patch };
+    setPrefsState(next);
+    sessionRef.current?.setPrefs(next);
+  };
+
   const start = async (fn) => {
     setBusy(true);
     setError("");
     try {
       const s = await fn();
       sessionRef.current = s;
+      s.setPrefs(prefs);
       setSession(s);
     } catch (e) {
       setError(e.message || "No se pudo conectar");
@@ -190,11 +198,32 @@ export default function App() {
           {room.players.map((p) => (
             <li key={p.id} className="player">
               <Avatar photo={p.photo} name={p.name} />
-              <span>{p.name} {p.id === room.hostId && "👑"} {p.id === session.myId && "(tú)"}</span>
+              <span>{p.name} {p.id === room.hostId && "👑"} {p.id === session.myId && "(tú)"} {p.ready && "✅"}</span>
             </li>
           ))}
         </ul>
       </div>
+      {room.phase === "lobby" && (
+        <div className="card">
+          <h3>Tu rol {prefs.villain !== null && prefs.level !== null && "✅"}</h3>
+          <div className="levels">
+            <button className={prefs.villain === true ? "on" : ""} onClick={() => changePrefs({ villain: true })}>
+              Malo 😈
+            </button>
+            <button className={prefs.villain === false ? "on" : ""} onClick={() => changePrefs({ villain: false })}>
+              No malo 🙂
+            </button>
+          </div>
+          <div className="levels">
+            {LEVELS.map((l) => (
+              <button key={l} className={prefs.level === l ? "on" : ""} onClick={() => changePrefs({ level: l })}>
+                {l}
+              </button>
+            ))}
+          </div>
+          <small>Elige rol y nivel. Nadie ve qué eliges, solo si ya estás listo.</small>
+        </div>
+      )}
       {session.isHost && room.phase === "lobby" && (
         <button disabled={room.players.length < MIN_PLAYERS} onClick={() => session.startGame()}>
           {room.players.length < MIN_PLAYERS
