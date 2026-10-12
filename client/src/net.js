@@ -9,15 +9,28 @@ const LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 const makeCode = () =>
   Array.from({ length: 4 }, () => LETTERS[Math.floor(Math.random() * LETTERS.length)]).join("");
 
+// La foto de perfil llega como data URL JPEG pequeña; el anfitrión descarta cualquier otra cosa.
+const MAX_PHOTO_CHARS = 30000;
+const cleanPhoto = (photo) =>
+  typeof photo === "string" && photo.startsWith("data:image/jpeg;base64,") && photo.length <= MAX_PHOTO_CHARS
+    ? photo
+    : null;
+
+// profile: { name, photo }
 // handlers: { onRoom(room), onChat(msg), onClosed(reason) }
 // Devuelven una promesa con { code, myId, isHost, sendChat(text), close() }
 
-export function createRoom(name, handlers, attempt = 0) {
+export function createRoom(profile, handlers, attempt = 0) {
   return new Promise((resolve, reject) => {
     const code = makeCode();
     const peer = new Peer(PREFIX + code);
     const conns = new Map(); // peerId -> DataConnection
-    const room = { code, hostId: HOST_ID, phase: "lobby", players: [{ id: HOST_ID, name }] };
+    const room = {
+      code,
+      hostId: HOST_ID,
+      phase: "lobby",
+      players: [{ id: HOST_ID, name: profile.name, photo: cleanPhoto(profile.photo) }],
+    };
     let opened = false;
 
     const broadcast = (msg) => conns.forEach((c) => c.open && c.send(msg));
@@ -34,7 +47,7 @@ export function createRoom(name, handlers, attempt = 0) {
     peer.on("error", (err) => {
       if (!opened && err.type === "unavailable-id" && attempt < 5) {
         peer.destroy();
-        createRoom(name, handlers, attempt + 1).then(resolve, reject);
+        createRoom(profile, handlers, attempt + 1).then(resolve, reject);
       } else if (!opened) {
         reject(new Error("No se pudo crear la sala: " + err.type));
       } else {
@@ -49,7 +62,7 @@ export function createRoom(name, handlers, attempt = 0) {
         code,
         myId: HOST_ID,
         isHost: true,
-        sendChat: (text) => chat(name, text),
+        sendChat: (text) => chat(profile.name, text),
         close: () => peer.destroy(),
       });
     });
@@ -62,7 +75,11 @@ export function createRoom(name, handlers, attempt = 0) {
             return;
           }
           conns.set(conn.peer, conn);
-          room.players.push({ id: conn.peer, name: String(data.name).slice(0, 20) || "Anónimo" });
+          room.players.push({
+            id: conn.peer,
+            name: String(data.name).slice(0, 20) || "Anónimo",
+            photo: cleanPhoto(data.photo),
+          });
           conn.send({ t: "welcome", you: conn.peer });
           publish();
         } else if (data.t === "chat") {
@@ -79,7 +96,7 @@ export function createRoom(name, handlers, attempt = 0) {
   });
 }
 
-export function joinRoom(code, name, handlers) {
+export function joinRoom(code, profile, handlers) {
   return new Promise((resolve, reject) => {
     const peer = new Peer();
     let settled = false;
@@ -101,7 +118,7 @@ export function joinRoom(code, name, handlers) {
       const conn = peer.connect(PREFIX + code.toUpperCase(), { reliable: true });
       const timeout = setTimeout(() => fail("No se pudo conectar con el anfitrión"), 15000);
 
-      conn.on("open", () => conn.send({ t: "join", name }));
+      conn.on("open", () => conn.send({ t: "join", name: profile.name, photo: profile.photo }));
       conn.on("data", (data) => {
         if (data.t === "welcome") {
           clearTimeout(timeout);

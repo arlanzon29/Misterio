@@ -3,6 +3,8 @@ import { QRCodeSVG } from "qrcode.react";
 import { createRoom, joinRoom } from "./net.js";
 
 const NAME_KEY = "misterio:nombre";
+const PHOTO_KEY = "misterio:foto";
+const PHOTO_SIZE = 128;
 
 const loadName = () => {
   try {
@@ -20,12 +22,60 @@ const saveName = (value) => {
   }
 };
 
+const loadPhoto = () => {
+  try {
+    return localStorage.getItem(PHOTO_KEY) || null;
+  } catch {
+    return null;
+  }
+};
+
+const savePhoto = (value) => {
+  try {
+    localStorage.setItem(PHOTO_KEY, value);
+  } catch {
+    // almacenamiento no disponible: la foto solo durará esta sesión
+  }
+};
+
+// Recorta al centro en cuadrado y reduce a 128x128 JPEG (unos pocos KB).
+async function resizePhoto(file) {
+  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  const side = Math.min(bitmap.width, bitmap.height);
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = PHOTO_SIZE;
+  canvas.getContext("2d").drawImage(
+    bitmap,
+    (bitmap.width - side) / 2,
+    (bitmap.height - side) / 2,
+    side,
+    side,
+    0,
+    0,
+    PHOTO_SIZE,
+    PHOTO_SIZE
+  );
+  bitmap.close();
+  return canvas.toDataURL("image/jpeg", 0.7);
+}
+
+function Avatar({ photo, name, size = 40 }) {
+  return photo ? (
+    <img className="avatar" src={photo} alt={name} width={size} height={size} />
+  ) : (
+    <span className="avatar" style={{ width: size, height: size, lineHeight: `${size}px` }}>
+      {(name || "?").slice(0, 1).toUpperCase()}
+    </span>
+  );
+}
+
 export default function App() {
   const [name, setNameState] = useState(loadName);
   const setName = (value) => {
     setNameState(value);
     saveName(value);
   };
+  const [photo, setPhoto] = useState(loadPhoto);
   const [code, setCode] = useState("");
   const [session, setSession] = useState(null); // { code, myId, isHost, sendChat, close }
   const [room, setRoom] = useState(null);
@@ -47,6 +97,19 @@ export default function App() {
       setMessages([]);
       setError(reason);
     },
+  };
+
+  const onPickPhoto = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const resized = await resizePhoto(file);
+      setPhoto(resized);
+      savePhoto(resized);
+    } catch {
+      setError("No se pudo procesar la foto");
+    }
   };
 
   const start = async (fn) => {
@@ -75,19 +138,24 @@ export default function App() {
     return (
       <main>
         <h1>🕵️ Misterio</h1>
+        <label className="photo-pick">
+          <Avatar photo={photo} name={name} size={96} />
+          <span>{photo ? "Cambiar foto" : "Hacerme una foto"}</span>
+          <input type="file" accept="image/*" capture="user" hidden onChange={onPickPhoto} />
+        </label>
         <input placeholder="Tu nombre" value={name} onChange={(e) => setName(e.target.value)} />
         {joinCode ? (
-          <button disabled={!name || busy} onClick={() => start(() => joinRoom(joinCode, name, handlers))}>
+          <button disabled={!name || busy} onClick={() => start(() => joinRoom(joinCode, { name, photo }, handlers))}>
             {busy ? "Conectando…" : `Unirme a la sala ${joinCode}`}
           </button>
         ) : (
           <>
-            <button disabled={!name || busy} onClick={() => start(() => createRoom(name, handlers))}>
+            <button disabled={!name || busy} onClick={() => start(() => createRoom({ name, photo }, handlers))}>
               {busy ? "Creando…" : "Crear sala (soy el anfitrión)"}
             </button>
             <div className="row">
               <input placeholder="Código" value={code} maxLength={4} onChange={(e) => setCode(e.target.value.toUpperCase())} />
-              <button style={{ width: "auto" }} disabled={!name || code.length !== 4 || busy} onClick={() => start(() => joinRoom(code, name, handlers))}>
+              <button style={{ width: "auto" }} disabled={!name || code.length !== 4 || busy} onClick={() => start(() => joinRoom(code, { name, photo }, handlers))}>
                 Unirse
               </button>
             </div>
@@ -114,7 +182,10 @@ export default function App() {
         <h3>Jugadores ({room.players.length})</h3>
         <ul>
           {room.players.map((p) => (
-            <li key={p.id}>{p.name} {p.id === room.hostId && "👑"} {p.id === session.myId && "(tú)"}</li>
+            <li key={p.id} className="player">
+              <Avatar photo={p.photo} name={p.name} />
+              <span>{p.name} {p.id === room.hostId && "👑"} {p.id === session.myId && "(tú)"}</span>
+            </li>
           ))}
         </ul>
       </div>
