@@ -5,6 +5,38 @@ import { createRoom, joinRoom, MIN_PLAYERS, LEVELS } from "./net.js";
 const NAME_KEY = "misterio:nombre";
 const PHOTO_KEY = "misterio:foto";
 const PHOTO_SIZE = 128;
+const PID_KEY = "misterio:id";
+const ROOM_KEY = "misterio:sala";
+
+// Identidad estable de este móvil: permite que el anfitrión nos reconozca al reconectar.
+const loadPid = () => {
+  try {
+    let id = localStorage.getItem(PID_KEY);
+    if (!id) {
+      id = crypto.randomUUID?.() || String(Math.random()).slice(2) + Date.now();
+      localStorage.setItem(PID_KEY, id);
+    }
+    return id;
+  } catch {
+    return String(Math.random()).slice(2) + Date.now();
+  }
+};
+
+const loadRoom = () => {
+  try {
+    return localStorage.getItem(ROOM_KEY) || "";
+  } catch {
+    return "";
+  }
+};
+
+const saveRoom = (value) => {
+  try {
+    localStorage.setItem(ROOM_KEY, value);
+  } catch {
+    // sin almacenamiento: no se recuerda la sala
+  }
+};
 
 const loadName = () => {
   try {
@@ -76,6 +108,8 @@ export default function App() {
     saveName(value);
   };
   const [photo, setPhoto] = useState(loadPhoto);
+  const [pid] = useState(loadPid);
+  const [lastRoom, setLastRoom] = useState(loadRoom);
   const [prefs, setPrefsState] = useState({ villain: null, level: null });
   const [code, setCode] = useState("");
   const [session, setSession] = useState(null); // { code, myId, isHost, sendChat, close }
@@ -126,15 +160,25 @@ export default function App() {
       const s = await fn();
       sessionRef.current = s;
       s.setPrefs(prefs);
+      if (!s.isHost) {
+        saveRoom(s.code);
+        setLastRoom(s.code);
+      }
       setSession(s);
     } catch (e) {
       setError(e.message || "No se pudo conectar");
+      if (e.message === "Sala no encontrada") {
+        saveRoom("");
+        setLastRoom("");
+      }
     } finally {
       setBusy(false);
     }
   };
 
   const leave = () => {
+    saveRoom("");
+    setLastRoom("");
     sessionRef.current?.close();
     sessionRef.current = null;
     setSession(null);
@@ -152,18 +196,23 @@ export default function App() {
           <input type="file" accept="image/*" capture="user" hidden onChange={onPickPhoto} />
         </label>
         <input placeholder="Tu nombre" value={name} onChange={(e) => setName(e.target.value)} />
+        {lastRoom && !joinCode && (
+          <button disabled={!name || busy} onClick={() => start(() => joinRoom(lastRoom, { name, photo, pid }, handlers))}>
+            {busy ? "Conectando…" : `↩️ Volver a la sala ${lastRoom}`}
+          </button>
+        )}
         {joinCode ? (
-          <button disabled={!name || busy} onClick={() => start(() => joinRoom(joinCode, { name, photo }, handlers))}>
+          <button disabled={!name || busy} onClick={() => start(() => joinRoom(joinCode, { name, photo, pid }, handlers))}>
             {busy ? "Conectando…" : `Unirme a la sala ${joinCode}`}
           </button>
         ) : (
           <>
-            <button disabled={!name || busy} onClick={() => start(() => createRoom({ name, photo }, handlers))}>
+            <button disabled={!name || busy} onClick={() => start(() => createRoom({ name, photo, pid }, handlers))}>
               {busy ? "Creando…" : "Crear sala (soy el anfitrión)"}
             </button>
             <div className="row">
               <input placeholder="Código" value={code} maxLength={4} onChange={(e) => setCode(e.target.value.toUpperCase())} />
-              <button style={{ width: "auto" }} disabled={!name || code.length !== 4 || busy} onClick={() => start(() => joinRoom(code, { name, photo }, handlers))}>
+              <button style={{ width: "auto" }} disabled={!name || code.length !== 4 || busy} onClick={() => start(() => joinRoom(code, { name, photo, pid }, handlers))}>
                 Unirse
               </button>
             </div>
@@ -196,9 +245,9 @@ export default function App() {
         <h3>Jugadores ({room.players.length})</h3>
         <ul>
           {room.players.map((p) => (
-            <li key={p.id} className="player">
+            <li key={p.id} className="player" style={{ opacity: p.connected === false ? 0.5 : 1 }}>
               <Avatar photo={p.photo} name={p.name} />
-              <span>{p.name} {p.id === room.hostId && "👑"} {p.id === session.myId && "(tú)"} {p.ready && "✅"}</span>
+              <span>{p.name} {p.id === room.hostId && "👑"} {p.id === session.myId && "(tú)"} {p.ready && "✅"} {p.connected === false && "📵 desconectado"}</span>
             </li>
           ))}
         </ul>

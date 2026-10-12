@@ -33,12 +33,12 @@ export function createRoom(profile, handlers, attempt = 0) {
   return new Promise((resolve, reject) => {
     const code = makeCode();
     const peer = new Peer(PREFIX + code);
-    const conns = new Map(); // peerId -> DataConnection
+    const conns = new Map(); // id estable del jugador -> DataConnection
     const room = {
       code,
       hostId: HOST_ID,
       phase: "lobby",
-      players: [{ id: HOST_ID, name: profile.name, photo: cleanPhoto(profile.photo), ready: false }],
+      players: [{ id: HOST_ID, name: profile.name, photo: cleanPhoto(profile.photo), ready: false, connected: true }],
     };
     let opened = false;
     const prefs = new Map(); // peerId -> { villain, level }. Solo en el anfitrión, no se difunde.
@@ -95,32 +95,55 @@ export function createRoom(profile, handlers, attempt = 0) {
     });
 
     peer.on("connection", (conn) => {
+      let pid = null; // identidad estable del jugador: sobrevive a reconexiones
+
       conn.on("data", (data) => {
         if (data.t === "join") {
-          if (room.phase !== "lobby") {
+          const name = String(data.name).slice(0, 20) || "Anónimo";
+          const claimed =
+            typeof data.pid === "string" && data.pid && data.pid !== HOST_ID ? data.pid.slice(0, 40) : conn.peer;
+
+          // 1) misma identidad  2) en partida: jugador desconectado con el mismo nombre
+          let player = room.players.find((p) => p.id === claimed);
+          if (!player && room.phase !== "lobby") {
+            player = room.players.find((p) => p.connected === false && p.name === name);
+          }
+          if (!player && room.phase !== "lobby") {
             conn.send({ t: "error", error: "La partida ya empezó" });
             return;
           }
-          conns.set(conn.peer, conn);
-          room.players.push({
-            id: conn.peer,
-            name: String(data.name).slice(0, 20) || "Anónimo",
-            photo: cleanPhoto(data.photo),
-            ready: false,
-          });
-          conn.send({ t: "welcome", you: conn.peer });
+
+          if (player) {
+            // Sustituye la conexión anterior (el anfitrión puede seguir creyéndola viva).
+            conns.get(player.id)?.close();
+            player.connected = true;
+            player.photo = cleanPhoto(data.photo) || player.photo;
+          } else {
+            player = { id: claimed, name, photo: cleanPhoto(data.photo), ready: false, connected: true };
+            room.players.push(player);
+          }
+          pid = player.id;
+          conns.set(pid, conn);
+          conn.send({ t: "welcome", you: pid });
           publish();
         } else if (data.t === "prefs") {
-          if (room.phase === "lobby" && conns.has(conn.peer)) applyPrefs(conn.peer, data);
+          if (room.phase === "lobby" && pid) applyPrefs(pid, data);
         } else if (data.t === "chat") {
-          const p = room.players.find((x) => x.id === conn.peer);
+          const p = room.players.find((x) => x.id === pid);
           if (p) chat(p.name, data.text);
         }
       });
+
       conn.on("close", () => {
-        conns.delete(conn.peer);
-        prefs.delete(conn.peer);
-        room.players = room.players.filter((p) => p.id !== conn.peer);
+        if (!pid || conns.get(pid) !== conn) return; // conexión ya sustituida
+        conns.delete(pid);
+        if (room.phase === "lobby") {
+          prefs.delete(pid);
+          room.players = room.players.filter((p) => p.id !== pid);
+        } else {
+          const p = room.players.find((x) => x.id === pid);
+          if (p) p.connected = false; // se conserva su sitio para que pueda volver
+        }
         publish();
       });
     });
@@ -149,7 +172,7 @@ export function joinRoom(code, profile, handlers) {
       const conn = peer.connect(PREFIX + code.toUpperCase(), { reliable: true });
       const timeout = setTimeout(() => fail("No se pudo conectar con el anfitrión"), 15000);
 
-      conn.on("open", () => conn.send({ t: "join", name: profile.name, photo: profile.photo }));
+      conn.on("open", () => conn.send({ t: "join", name: profile.name, photo: profile.photo, pid: profile.pid }));
       conn.on("data", (data) => {
         if (data.t === "welcome") {
           clearTimeout(timeout);
