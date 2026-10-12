@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { createRoom, joinRoom } from "./net.js";
+import { createRoom, joinRoom, MIN_PLAYERS } from "./net.js";
 
 const NAME_KEY = "misterio:nombre";
 const PHOTO_KEY = "misterio:foto";
@@ -171,7 +171,13 @@ export default function App() {
   return (
     <main>
       <h1>Sala {room.code}</h1>
-      {session.isHost && (
+      {room.phase === "playing" && (
+        <div className="card">
+          <h2>🔎 Partida en curso</h2>
+          <p>La partida ha empezado.</p>
+        </div>
+      )}
+      {session.isHost && room.phase === "lobby" && (
         <div className="card" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <span>Escanea para unirte (mantén esta pantalla abierta):</span>
           <div className="qr"><QRCodeSVG value={inviteUrl} size={180} /></div>
@@ -189,6 +195,14 @@ export default function App() {
           ))}
         </ul>
       </div>
+      {session.isHost && room.phase === "lobby" && (
+        <button disabled={room.players.length < MIN_PLAYERS} onClick={() => session.startGame()}>
+          {room.players.length < MIN_PLAYERS
+            ? `Faltan jugadores (mínimo ${MIN_PLAYERS})`
+            : "Empezar partida"}
+        </button>
+      )}
+      {!session.isHost && room.phase === "lobby" && <p>Esperando a que el anfitrión empiece…</p>}
       <div className="card">
         <h3>Chat de prueba</h3>
         <div className="chat">

@@ -4,6 +4,7 @@ import Peer from "peerjs";
 // El anfitrión guarda el estado autoritativo (y, más adelante, los secretos de cada jugador).
 const PREFIX = "misterio-";
 const HOST_ID = "host";
+export const MIN_PLAYERS = 2;
 const LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 
 const makeCode = () =>
@@ -63,6 +64,11 @@ export function createRoom(profile, handlers, attempt = 0) {
         myId: HOST_ID,
         isHost: true,
         sendChat: (text) => chat(profile.name, text),
+        startGame: () => {
+          if (room.phase !== "lobby" || room.players.length < MIN_PLAYERS) return;
+          room.phase = "playing";
+          publish();
+        },
         close: () => peer.destroy(),
       });
     });
