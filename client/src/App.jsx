@@ -2,8 +2,30 @@ import { useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { createRoom, joinRoom } from "./net.js";
 
+const NAME_KEY = "misterio:nombre";
+
+const loadName = () => {
+  try {
+    return localStorage.getItem(NAME_KEY) || "";
+  } catch {
+    return "";
+  }
+};
+
+const saveName = (value) => {
+  try {
+    localStorage.setItem(NAME_KEY, value);
+  } catch {
+    // almacenamiento no disponible (modo privado): se ignora
+  }
+};
+
 export default function App() {
-  const [name, setName] = useState("");
+  const [name, setNameState] = useState(loadName);
+  const setName = (value) => {
+    setNameState(value);
+    saveName(value);
+  };
   const [code, setCode] = useState("");
   const [session, setSession] = useState(null); // { code, myId, isHost, sendChat, close }
   const [room, setRoom] = useState(null);
