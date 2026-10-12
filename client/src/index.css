@@ -20,3 +20,4 @@ ul { padding: 0; margin: 8px 0 0; list-style: none; }
 .levels { display: flex; gap: 8px; margin: 10px 0; }
 .levels button { background: #2a2638; text-transform: capitalize; }
 .levels button.on { background: #7c5cff; }
+.version { color: #8a85a0; text-align: center; }

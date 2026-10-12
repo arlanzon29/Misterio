@@ -5,6 +5,7 @@ import { createRoom, joinRoom, MIN_PLAYERS, LEVELS } from "./net.js";
 const NAME_KEY = "misterio:nombre";
 const PHOTO_KEY = "misterio:foto";
 const PHOTO_SIZE = 128;
+const VERSION = __APP_VERSION__;
 const PID_KEY = "misterio:id";
 const ROOM_KEY = "misterio:sala";
 
@@ -219,6 +220,7 @@ export default function App() {
           </>
         )}
         {error && <p className="err">{error}</p>}
+        <small className="version">Versión {VERSION}</small>
       </main>
     );
   }
@@ -301,6 +303,7 @@ export default function App() {
         <button style={{ width: "auto" }}>Enviar</button>
       </form>
       <button style={{ background: "#3a3550" }} onClick={leave}>Salir</button>
+      <small className="version">Versión {VERSION}</small>
     </main>
   );
 }
