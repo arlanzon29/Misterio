@@ -22,8 +22,6 @@ jobs:
         working-directory: client
       - run: npm run build
         working-directory: client
-        env:
-          VITE_SERVER_URL: ${{ vars.VITE_SERVER_URL }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: client/dist

@@ -1,54 +1,71 @@
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { socket } from "./socket.js";
+import { createRoom, joinRoom } from "./net.js";
 
 export default function App() {
-  const [connected, setConnected] = useState(socket.connected);
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
+  const [session, setSession] = useState(null); // { code, myId, isHost, sendChat, close }
   const [room, setRoom] = useState(null);
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
-
-  useEffect(() => {
-    socket.on("connect", () => setConnected(true));
-    socket.on("disconnect", () => setConnected(false));
-    socket.on("room:update", setRoom);
-    socket.on("chat:message", (m) => setMessages((prev) => [...prev, m]));
-    return () => socket.off();
-  }, []);
-
-  const enter = (event, payload) =>
-    socket.emit(event, payload, (res) => {
-      if (res.ok) {
-        setRoom(res.room);
-        setError("");
-      } else {
-        setError(res.error);
-      }
-    });
+  const sessionRef = useRef(null);
 
   const joinCode = new URLSearchParams(window.location.search).get("sala") || "";
 
-  if (!room) {
+  const handlers = {
+    onRoom: setRoom,
+    onChat: (m) => setMessages((prev) => [...prev, m]),
+    onClosed: (reason) => {
+      sessionRef.current = null;
+      setSession(null);
+      setRoom(null);
+      setMessages([]);
+      setError(reason);
+    },
+  };
+
+  const start = async (fn) => {
+    setBusy(true);
+    setError("");
+    try {
+      const s = await fn();
+      sessionRef.current = s;
+      setSession(s);
+    } catch (e) {
+      setError(e.message || "No se pudo conectar");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const leave = () => {
+    sessionRef.current?.close();
+    sessionRef.current = null;
+    setSession(null);
+    setRoom(null);
+    setMessages([]);
+  };
+
+  if (!session || !room) {
     return (
       <main>
         <h1>🕵️ Misterio</h1>
-        <p>{connected ? "🟢 Conectado" : "🔴 Sin conexión al servidor"}</p>
         <input placeholder="Tu nombre" value={name} onChange={(e) => setName(e.target.value)} />
         {joinCode ? (
-          <button disabled={!name || !connected} onClick={() => enter("room:join", { code: joinCode, name })}>
-            Unirme a la sala {joinCode}
+          <button disabled={!name || busy} onClick={() => start(() => joinRoom(joinCode, name, handlers))}>
+            {busy ? "Conectando…" : `Unirme a la sala ${joinCode}`}
           </button>
         ) : (
           <>
-            <button disabled={!name || !connected} onClick={() => enter("room:create", { name })}>
-              Crear sala (soy el host)
+            <button disabled={!name || busy} onClick={() => start(() => createRoom(name, handlers))}>
+              {busy ? "Creando…" : "Crear sala (soy el anfitrión)"}
             </button>
             <div className="row">
               <input placeholder="Código" value={code} maxLength={4} onChange={(e) => setCode(e.target.value.toUpperCase())} />
-              <button style={{ width: "auto" }} disabled={!name || code.length !== 4} onClick={() => enter("room:join", { code, name })}>
+              <button style={{ width: "auto" }} disabled={!name || code.length !== 4 || busy} onClick={() => start(() => joinRoom(code, name, handlers))}>
                 Unirse
               </button>
             </div>
@@ -59,15 +76,14 @@ export default function App() {
     );
   }
 
-  const isHost = room.hostId === socket.id;
   const inviteUrl = `${window.location.origin}${window.location.pathname}?sala=${room.code}`;
 
   return (
     <main>
       <h1>Sala {room.code}</h1>
-      {isHost && (
+      {session.isHost && (
         <div className="card" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <span>Escanea para unirte:</span>
+          <span>Escanea para unirte (mantén esta pantalla abierta):</span>
           <div className="qr"><QRCodeSVG value={inviteUrl} size={180} /></div>
           <small style={{ wordBreak: "break-all" }}>{inviteUrl}</small>
         </div>
@@ -76,7 +92,7 @@ export default function App() {
         <h3>Jugadores ({room.players.length})</h3>
         <ul>
           {room.players.map((p) => (
-            <li key={p.id}>{p.name} {p.id === room.hostId && "👑"} {p.id === socket.id && "(tú)"}</li>
+            <li key={p.id}>{p.name} {p.id === room.hostId && "👑"} {p.id === session.myId && "(tú)"}</li>
           ))}
         </ul>
       </div>
@@ -91,7 +107,7 @@ export default function App() {
         onSubmit={(e) => {
           e.preventDefault();
           if (text) {
-            socket.emit("chat:send", { text });
+            session.sendChat(text);
             setText("");
           }
         }}
@@ -99,6 +115,7 @@ export default function App() {
         <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Mensaje" />
         <button style={{ width: "auto" }}>Enviar</button>
       </form>
+      <button style={{ background: "#3a3550" }} onClick={leave}>Salir</button>
     </main>
   );
 }

@@ -1,7 +1,0 @@
-{
-  "name": "server",
-  "private": true,
-  "type": "module",
-  "scripts": { "dev": "node --watch index.js" },
-  "dependencies": { "socket.io": "^4.8.1" }
-}
