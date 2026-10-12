@@ -115,7 +115,11 @@ export function createRoom(profile, handlers, attempt = 0) {
 
           if (player) {
             // Sustituye la conexión anterior (el anfitrión puede seguir creyéndola viva).
-            conns.get(player.id)?.close();
+            // Se quita del registro ANTES de cerrarla: close() emite "close" de forma síncrona y su
+            // manejador borraría al jugador del lobby.
+            const old = conns.get(player.id);
+            conns.delete(player.id);
+            old?.close();
             player.connected = true;
             player.photo = cleanPhoto(data.photo) || player.photo;
           } else {
